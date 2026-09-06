@@ -1,0 +1,62 @@
+name: Steer rectifier validation
+
+on:
+  push:
+    branches: [verify/claude-steer]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-22.04]
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify source matches submitted commit
+        shell: bash
+        run: git diff --exit-code 80f4efacb28b22765fd3a4c37db2841fb26ea7a5 HEAD -- . ':!.github/workflows/steer-validation.yml'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95'
+          components: rustfmt, clippy
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libxdo-dev
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: steer-validation-${{ runner.os }}-rust195-${{ hashFiles('src-tauri/Cargo.lock') }}
+      - name: Check Windows test prerequisites
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $probeRoot = Join-Path $env:RUNNER_TEMP 'steer-test-prerequisites'
+          New-Item -ItemType Directory -Path (Join-Path $probeRoot 'target') -Force | Out-Null
+          New-Item -ItemType SymbolicLink -Path (Join-Path $probeRoot 'link') -Target (Join-Path $probeRoot 'target') -ErrorAction Stop | Out-Null
+          $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 15721)
+          try { $listener.Start(); Write-Output 'Symlink creation and port 15721 are available.' } finally { $listener.Stop() }
+      - name: Prepare frontend placeholder
+        shell: bash
+        run: mkdir -p dist
+      - name: Formatting
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+      - name: Clippy
+        run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml -- -D warnings
+      - name: Full backend tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --no-fail-fast
