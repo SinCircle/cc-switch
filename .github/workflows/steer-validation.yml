@@ -23,6 +23,8 @@ jobs:
       CARGO_INCREMENTAL: 0
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Verify source matches submitted commit
         shell: bash
         run: git diff --exit-code 80f4efacb28b22765fd3a4c37db2841fb26ea7a5 HEAD -- . ':!.github/workflows/steer-validation.yml'
